@@ -7,7 +7,7 @@ import type {
 
 export type JobExecutionConfig<T extends Record<string, number>> = {
   handler: JobHandler<T>;
-  customStatus: T;
+  customStatus?: T;
   tickDuration?: number;
 };
 
@@ -23,7 +23,7 @@ export function runInWorker<T extends Record<string, number>>({
     process.send.bind(process);
 
   const status: WorkerStatus<T> = {
-    custom: customStatus,
+    custom: customStatus || ({} as T),
     started: 0,
     completed: 0,
     failed: 0,

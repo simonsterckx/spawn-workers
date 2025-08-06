@@ -56,17 +56,22 @@ const dirName = path.dirname(new URL(import.meta.url).pathname);
 await spawnWorkers({
   workerFilePath: path.resolve(dirName, "./worker.ts"),
   dataFilePath: path.resolve(dirName, "./data/data.txt"),
-  processCount: 4,
-  batchSize: 50,
-  maxConcurrency: 20,
+  processCount: 2,
+  batchSize: 2,
+  maxConcurrency: 2,
   maxPendingJobs: 100,
+  tickDuration: 500,
+  logFilePath: "worker.log",
   onStatusUpdate: (statuses) => {
-    console.table(statuses.map((status, index) => ({
-      started: status.started,
-      completed: status.completed,
-      failed: status.failed,
-      pending: status.pending,
-    })));
+    console.clear();
+    console.table(
+      statuses.map((status, index) => ({
+        started: status.started,
+        completed: status.completed,
+        failed: status.failed,
+        pending: status.pending,
+      }))
+    );
   },
   onError: (error, worker) => {
     console.error(`Worker ${worker.index} error:`, error.message);
@@ -75,6 +80,7 @@ await spawnWorkers({
     console.log("All tasks completed!");
   },
 });
+
 ```
 
 ### 3. Prepare Data

@@ -1,6 +1,6 @@
 {
   "name": "spawn-workers",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A high-performance worker pool library for Node.js that spawns worker processes to handle tasks in parallel",
   "author": "Simon Sterckx",
   "license": "MIT",

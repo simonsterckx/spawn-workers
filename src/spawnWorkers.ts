@@ -82,7 +82,7 @@ export class WorkerManager<CustomStatus extends Record<string, number>> {
     // Resolve file paths (convert relative to absolute)
 
     this.config = {
-      tickDuration: 1000,
+      tickDuration: 500,
       initialIndex: 0,
       totalEntries: 0,
       env: {},
@@ -111,7 +111,7 @@ export class WorkerManager<CustomStatus extends Record<string, number>> {
   async initialize(): Promise<void> {
     try {
       const dataContent = await fs.readFile(this.config.dataFilePath, "utf8");
-      this.dataEntries = dataContent.split("\n");
+      this.dataEntries = dataContent.trim().split("\n");
 
       // Set up total entries if not specified
       if (this.config.totalEntries === 0) {
@@ -289,14 +289,13 @@ export class WorkerManager<CustomStatus extends Record<string, number>> {
     this.startedAt = Date.now();
     this.startChildProcesses();
 
-    const stopIndex = this.config.initialIndex + this.config.totalEntries;
-    const activeEntryCount = stopIndex - this.config.initialIndex;
+    const stopIndex = this.config.initialIndex + this.config.totalEntries - 1;
 
     if (this.logFile) {
       this.logFile.write(
         `[${new Date().toISOString()}] Processing entries ${
           this.config.initialIndex
-        } to ${stopIndex - 1}. Total: ${activeEntryCount}\n`
+        } to ${stopIndex}. Total: ${this.config.totalEntries}\n`
       );
     }
 
@@ -329,7 +328,7 @@ export class WorkerManager<CustomStatus extends Record<string, number>> {
       }
 
       // Calculate batch size for this worker
-      const remainingEntries = stopIndex - this.currentIndex;
+      const remainingEntries = stopIndex + 1 - this.currentIndex;
       const batchSize = Math.min(this.config.batchSize, remainingEntries);
 
       if (batchSize <= 0) return;
