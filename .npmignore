@@ -1,0 +1,26 @@
+# Source files
+src/
+example/
+spawn-workers.log
+
+# Development files
+tsconfig.json
+tsconfig.build.json
+.gitignore
+
+# Lock files (let users choose their package manager)
+bun.lock
+package-lock.json
+yarn.lock
+
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*

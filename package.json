@@ -1,0 +1,57 @@
+{
+  "name": "spawn-workers",
+  "version": "0.1.0",
+  "description": "A high-performance worker pool library for Node.js that spawns worker processes to handle tasks in parallel",
+  "author": "Simon Sterckx",
+  "license": "MIT",
+  "keywords": [
+    "worker",
+    "worker-pool",
+    "parallel",
+    "concurrent",
+    "load-testing",
+    "background-jobs",
+    "typescript"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/simonsterckx/spawn-workers.git"
+  },
+  "bugs": {
+    "url": "https://github.com/simonsterckx/spawn-workers/issues"
+  },
+  "homepage": "https://github.com/simonsterckx/spawn-workers#readme",
+  "main": "lib/index.js",
+  "module": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "type": "module",
+  "files": [
+    "lib/**/*",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "axios": "^1.11.0",
+    "tsx": "^4.20.3"
+  },
+  "scripts": {
+    "dev": "tsx --watch example/server.ts",
+    "server": "tsx example/server.ts",
+    "spawn": "tsx example/spawn.ts",
+    "create-data": "tsx example/data/createData.ts",
+    "lint": "tsc --noEmit --strict",
+    "example": "npm run server & sleep 2 && npm run spawn",
+    "build": "tsc -p tsconfig.build.json",
+    "clean": "rm -rf lib",
+    "prebuild": "npm run clean",
+    "prepublishOnly": "npm run build",
+    "test": "echo \"No tests specified\" && exit 0"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}
