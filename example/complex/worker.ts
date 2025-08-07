@@ -1,5 +1,5 @@
 import axios from "axios";
-import { runInWorker } from "../lib";
+import { runInWorker } from "../../lib";
 
 export type CustomStatus = {};
 

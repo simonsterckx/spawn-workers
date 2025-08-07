@@ -18,6 +18,12 @@ export interface SpawnWorkersConfig<
   /** Path to the data file containing entries to process */
   dataFilePath: string;
 
+  /** Path to the output file where worker results will be written */
+  outputFilePath?: string;
+
+  /** Whether to overwrite the output file if it exists @default false */
+  overwriteOutputFile?: boolean;
+
   /** Number of worker processes to spawn */
   processCount: number;
 
@@ -55,6 +61,11 @@ export interface SpawnWorkersConfig<
   env?: Record<string, string>;
 }
 
+type OptionalConfig = Pick<
+  SpawnWorkersConfig<any>,
+  "logFilePath" | "outputFilePath" | "overwriteOutputFile"
+>;
+
 type WorkerInfo = {
   process: ChildProcess;
   status: WorkerStatus<any>;
@@ -65,10 +76,12 @@ export class WorkerManager<CustomStatus extends Record<string, number>> {
   private workers: WorkerInfo[] = [];
   private config: Omit<
     Required<SpawnWorkersConfig<CustomStatus>>,
-    "logFilePath"
-  > &
-    Pick<SpawnWorkersConfig<CustomStatus>, "logFilePath">;
+    "logFilePath" | "outputFilePath" | "overwriteOutputFile"
+  >;
+
+  private optionalConfig: OptionalConfig;
   private logFile?: WriteStream;
+  private outputFile?: WriteStream;
   private startedAt: number = 0;
   private currentIndex: number = 0;
   private dataEntries: string[] = [];
@@ -90,6 +103,11 @@ export class WorkerManager<CustomStatus extends Record<string, number>> {
       onComplete: config.onComplete ?? (() => {}),
       onStatusUpdate: config.onStatusUpdate ?? (() => {}),
       onError: config.onError ?? (() => {}),
+    };
+    this.optionalConfig = {
+      logFilePath: config.logFilePath,
+      outputFilePath: config.outputFilePath,
+      overwriteOutputFile: config.overwriteOutputFile || false,
     };
   }
 
@@ -131,11 +149,34 @@ export class WorkerManager<CustomStatus extends Record<string, number>> {
       this.currentIndex = this.config.initialIndex;
 
       // Set up logging
-      if (this.config.logFilePath) {
-        this.logFile = createWriteStream(this.config.logFilePath, {
+      if (this.optionalConfig.logFilePath) {
+        this.logFile = createWriteStream(this.optionalConfig.logFilePath, {
           flags: "a",
           encoding: "utf8",
         });
+      }
+      // Set up output file
+      if (this.optionalConfig.outputFilePath) {
+        // Ensure file is empty before writing
+        const outputFileSize = await fs
+          .stat(this.optionalConfig.outputFilePath)
+          .then((stats) => stats.size)
+          .catch(() => 0);
+        if (outputFileSize > 0) {
+          if (!this.optionalConfig.overwriteOutputFile) {
+            throw new Error(
+              `Output file ${this.optionalConfig.outputFilePath} already exists and overwriteOutputFile is false`
+            );
+          }
+          await fs.truncate(this.optionalConfig.outputFilePath, 0);
+        }
+        this.outputFile = createWriteStream(
+          this.optionalConfig.outputFilePath,
+          {
+            flags: "a",
+            encoding: "utf8",
+          }
+        );
       }
 
       // Set up signal handlers
@@ -170,7 +211,7 @@ export class WorkerManager<CustomStatus extends Record<string, number>> {
       }
     });
 
-    if (this.logFile && !this.logFile.destroyed) {
+    if (this.logFile?.writable) {
       this.logFile.end();
     }
   }
@@ -191,15 +232,19 @@ export class WorkerManager<CustomStatus extends Record<string, number>> {
         });
         this.logError(workerIndex, error);
       }
-    } else if (message.type === "status" || message.type === "completed") {
+    } else if (message.type === "status") {
       workerInfo.status = message.status;
       const statuses = this.workers.map((w) => w.status);
       this.config.onStatusUpdate(statuses);
+    } else if (message.type === "completed") {
+      if (this.outputFile?.writable) {
+        this.outputFile.write(message.results.join("\n") + "\n");
+      }
     }
   }
 
   private logError(workerIndex: number, error: ErrorLike): void {
-    if (this.logFile && !this.logFile.destroyed) {
+    if (this.logFile?.writable) {
       const logMessage = `[${new Date().toISOString()}][Worker ${workerIndex}] Error: ${
         error.name
       } - ${error.message}`;
@@ -214,7 +259,7 @@ export class WorkerManager<CustomStatus extends Record<string, number>> {
     const handleExit = (): void => {
       const duration = Date.now() - this.startedAt;
 
-      if (this.logFile && !this.logFile.destroyed) {
+      if (this.logFile?.writable) {
         this.logFile.write(
           `[${new Date().toISOString()}] Job completed. Duration: ${duration}ms\n`
         );
@@ -232,6 +277,7 @@ export class WorkerManager<CustomStatus extends Record<string, number>> {
           ...this.config.env,
           MAX_CONCURRENCY: String(this.config.maxConcurrency),
         },
+        silent: false,
       });
 
       const workerInfo: WorkerInfo = {
@@ -282,7 +328,7 @@ export class WorkerManager<CustomStatus extends Record<string, number>> {
   async start(): Promise<void> {
     await this.initialize();
 
-    if (this.logFile) {
+    if (this.logFile?.writable) {
       this.logFile.write(`\n[${new Date().toISOString()}] Workers started\n`);
     }
 
@@ -291,7 +337,7 @@ export class WorkerManager<CustomStatus extends Record<string, number>> {
 
     const stopIndex = this.config.initialIndex + this.config.totalEntries - 1;
 
-    if (this.logFile) {
+    if (this.logFile?.writable) {
       this.logFile.write(
         `[${new Date().toISOString()}] Processing entries ${
           this.config.initialIndex
@@ -354,7 +400,7 @@ export class WorkerManager<CustomStatus extends Record<string, number>> {
         this.sendToWorker(workerInfo.process, { type: "close" });
         workerInfo.isCompleted = true;
 
-        if (this.logFile && !this.logFile.destroyed) {
+        if (this.logFile?.writable) {
           this.logFile.write(
             `[${new Date().toISOString()}] Worker ${index} completed\n`
           );

@@ -39,10 +39,8 @@
     "tsx": "^4.20.3"
   },
   "scripts": {
-    "dev": "tsx --watch example/server.ts",
-    "server": "tsx example/server.ts",
-    "spawn": "tsx example/spawn.ts",
-    "create-data": "tsx example/data/createData.ts",
+    "server": "tsx example/complex/server.ts",
+    "spawn": "tsx example/complex/spawn.ts",
     "lint": "tsc --noEmit --strict",
     "example": "npm run server & sleep 2 && npm run spawn",
     "build": "tsc -p tsconfig.build.json",

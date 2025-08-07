@@ -1,5 +1,5 @@
 import path from "node:path";
-import { type WorkerStatus, spawnWorkers, throttle } from "../lib";
+import { type WorkerStatus, spawnWorkers, throttle } from "../../lib";
 import type { CustomStatus } from "./worker";
 
 const dirName = path.dirname(new URL(import.meta.url).pathname);

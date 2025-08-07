@@ -1,14 +1,18 @@
 export type JobHandlerArgs<CustomStatus extends Record<string, number>> = {
   message: string;
   status: WorkerStatus<CustomStatus>;
-  onError: (error: Error) => void;
 };
 
 export type JobHandler<CustomStatus extends Record<string, number>> = (
   args: JobHandlerArgs<CustomStatus>
-) => Promise<void>;
+) => Promise<string | undefined | void>;
 
-export type ErrorHandler = (error: ErrorLike) => void;
+export type JobExecutionConfig<T extends Record<string, number>> = {
+  handler: JobHandler<T>;
+  onExit?: () => void | Promise<void>;
+  customStatus?: T;
+  tickDuration?: number;
+};
 
 export interface WorkerStatus<CustomStatus extends Record<string, number>> {
   custom: CustomStatus;
@@ -36,8 +40,12 @@ export type ErrorLike = {
 
 export type IpcMessage<CustomStatus extends Record<string, number>> =
   | {
-      type: "status" | "completed";
+      type: "status";
       status: WorkerStatus<CustomStatus>;
+    }
+  | {
+      type: "completed";
+      results: string[];
     }
   | {
       type: "error";

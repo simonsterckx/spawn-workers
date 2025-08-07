@@ -1,18 +1,13 @@
 import type {
   IpcMessage,
   IpcMessageRequest,
-  JobHandler,
+  JobExecutionConfig,
   WorkerStatus,
 } from "./types";
 
-export type JobExecutionConfig<T extends Record<string, number>> = {
-  handler: JobHandler<T>;
-  customStatus?: T;
-  tickDuration?: number;
-};
-
 export function runInWorker<T extends Record<string, number>>({
   handler,
+  onExit,
   customStatus,
   tickDuration = 500,
 }: JobExecutionConfig<T>): void {
@@ -34,12 +29,6 @@ export function runInWorker<T extends Record<string, number>>({
     processSend({
       type: "status",
       status: status,
-    });
-  };
-  const handleError = (error: Error): void => {
-    processSend({
-      type: "error",
-      error,
     });
   };
 
@@ -66,10 +55,10 @@ export function runInWorker<T extends Record<string, number>>({
         return handler({
           message: jobEntry,
           status,
-          onError: handleError,
         })
-          .then(() => {
+          .then((result) => {
             status.completed++;
+            return result;
           })
           .catch((error: Error | null) => {
             status.failed++;
@@ -87,7 +76,19 @@ export function runInWorker<T extends Record<string, number>>({
           });
       });
 
-      await Promise.all(promises);
+      const results = await Promise.allSettled(promises);
+      const fulfilledResults = results.reduce((acc, res) => {
+        if (res.status === "fulfilled" && res.value != undefined) {
+          acc.push(res.value);
+        }
+        return acc;
+      }, [] as string[]);
+      if (fulfilledResults.length > 0) {
+        processSend({
+          type: "completed",
+          results: fulfilledResults,
+        });
+      }
     }
 
     isProcessing = false;
@@ -96,10 +97,7 @@ export function runInWorker<T extends Record<string, number>>({
     if (queue.length > 0) {
       processQueue();
     } else {
-      processSend({
-        type: "completed",
-        status: status,
-      });
+      sendStatusUpdate();
     }
   }
 
@@ -112,7 +110,14 @@ export function runInWorker<T extends Record<string, number>>({
     } else if (message.type === "close") {
       sendStatusUpdate();
       clearInterval(intervalId);
-      process.exit(0);
+      const exitPromise = onExit?.();
+      if (exitPromise instanceof Promise) {
+        exitPromise.then(() => {
+          process.exit(0);
+        });
+      } else {
+        process.exit(0);
+      }
     }
   });
 
