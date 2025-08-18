@@ -77,18 +77,20 @@ export function runInWorker<T extends Record<string, number>>({
       });
 
       const results = await Promise.allSettled(promises);
-      const fulfilledResults = results.reduce((acc, res) => {
-        if (res.status === "fulfilled" && res.value != undefined) {
-          acc.push(res.value);
+      const fulfilledResults: string[] = [];
+      const rejectedResults: Error[] = [];
+      for (const res of results) {
+        if (res.status === "rejected") {
+          rejectedResults.push(res.reason as Error);
+        } else if (res.status === "fulfilled" && res.value != undefined) {
+          fulfilledResults.push(res.value);
         }
-        return acc;
-      }, [] as string[]);
-      if (fulfilledResults.length > 0) {
-        processSend({
-          type: "completed",
-          results: fulfilledResults,
-        });
       }
+      processSend({
+        type: "completed-batch",
+        results: fulfilledResults,
+        failures: rejectedResults,
+      });
     }
 
     isProcessing = false;
@@ -107,16 +109,46 @@ export function runInWorker<T extends Record<string, number>>({
       status.pending = queue.length;
       processQueue();
       sendStatusUpdate();
-    } else if (message.type === "close") {
-      sendStatusUpdate();
-      clearInterval(intervalId);
-      const exitPromise = onExit?.();
-      if (exitPromise instanceof Promise) {
-        exitPromise.then(() => {
-          process.exit(0);
+    } else if (message.type === "close-request") {
+      // Only respond with close-response if we truly have no pending work
+      if (queue.length === 0 && !isProcessing) {
+        processSend({
+          type: "close-response",
         });
+        sendStatusUpdate();
+        clearInterval(intervalId);
+        const exitPromise = onExit?.();
+        if (exitPromise instanceof Promise) {
+          exitPromise.then(() => {
+            process.exit(0);
+          });
+        } else {
+          process.exit(0);
+        }
       } else {
-        process.exit(0);
+        // If we still have work, we'll respond later when we're truly done
+        // Check again after current processing completes
+        const checkForClose = () => {
+          if (queue.length === 0 && !isProcessing) {
+            processSend({
+              type: "close-response",
+            });
+            sendStatusUpdate();
+            clearInterval(intervalId);
+            const exitPromise = onExit?.();
+            if (exitPromise instanceof Promise) {
+              exitPromise.then(() => {
+                process.exit(0);
+              });
+            } else {
+              process.exit(0);
+            }
+          } else {
+            // Check again in a short interval
+            setTimeout(checkForClose, 100);
+          }
+        };
+        setTimeout(checkForClose, 100);
       }
     }
   });

@@ -25,7 +25,7 @@ export interface WorkerStatus<CustomStatus extends Record<string, number>> {
 
 export type IpcMessageRequest =
   | {
-      type: "close";
+      type: "close-request";
     }
   | {
       type: "entries";
@@ -44,10 +44,14 @@ export type IpcMessage<CustomStatus extends Record<string, number>> =
       status: WorkerStatus<CustomStatus>;
     }
   | {
-      type: "completed";
+      type: "completed-batch";
       results: string[];
+      failures: Error[];
     }
   | {
       type: "error";
       error: ErrorLike | undefined;
+    }
+  | {
+      type: "close-response";
     };

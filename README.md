@@ -25,7 +25,7 @@ bun install spawn-workers
 
 ### 1. Create a Worker
 
-Create a worker file that defines how to process each task:
+Create a worker file (worker.ts) that defines how to process each task:
 
 ```typescript
 import { runInWorker } from "spawn-workers";
@@ -45,7 +45,7 @@ runInWorker({
 
 ### 2. Spawn Workers
 
-Create a main file to spawn and manage workers:
+Create a main file (spawn.ts) to spawn and manage workers:
 
 ```typescript
 import { spawnWorkers } from "spawn-workers";
@@ -55,7 +55,7 @@ const dirName = path.dirname(new URL(import.meta.url).pathname);
 
 await spawnWorkers({
   workerFilePath: path.resolve(dirName, "./worker.ts"),
-  dataFilePath: path.resolve(dirName, "./data/data.txt"),
+  dataFilePath: path.resolve(dirName, "./data.txt"),
   processCount: 2,
   batchSize: 2,
   maxConcurrency: 2,
@@ -85,7 +85,7 @@ await spawnWorkers({
 
 ### 3. Prepare Data
 
-Create a data file with one task per line:
+Create a data file (data.txt) with one task per line:
 
 ```txt
 {"id": 1, "name": "Task 1"}

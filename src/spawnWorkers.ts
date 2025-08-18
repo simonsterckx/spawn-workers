@@ -21,6 +21,9 @@ export interface SpawnWorkersConfig<
   /** Path to the output file where worker results will be written */
   outputFilePath?: string;
 
+  /** Path to the failure output file where worker errors will be written */
+  failureOutputFilePath?: string;
+
   /** Whether to overwrite the output file if it exists @default false */
   overwriteOutputFile?: boolean;
 
@@ -49,7 +52,7 @@ export interface SpawnWorkersConfig<
   logFilePath?: string;
 
   /** Called when all workers complete */
-  onComplete?: () => void;
+  onComplete?: (statuses: readonly WorkerStatus<CustomStatus>[]) => void;
 
   /** Called on each status update with all worker statuses */
   onStatusUpdate?: (statuses: readonly WorkerStatus<CustomStatus>[]) => void;
@@ -63,25 +66,33 @@ export interface SpawnWorkersConfig<
 
 type OptionalConfig = Pick<
   SpawnWorkersConfig<any>,
-  "logFilePath" | "outputFilePath" | "overwriteOutputFile"
+  | "logFilePath"
+  | "outputFilePath"
+  | "failureOutputFilePath"
+  | "overwriteOutputFile"
 >;
 
 type WorkerInfo = {
   process: ChildProcess;
   status: WorkerStatus<any>;
   isCompleted: boolean;
+  closeRequested: boolean;
 };
 
 export class WorkerManager<CustomStatus extends Record<string, number>> {
   private workers: WorkerInfo[] = [];
   private config: Omit<
     Required<SpawnWorkersConfig<CustomStatus>>,
-    "logFilePath" | "outputFilePath" | "overwriteOutputFile"
+    | "logFilePath"
+    | "outputFilePath"
+    | "failureOutputFilePath"
+    | "overwriteOutputFile"
   >;
 
   private optionalConfig: OptionalConfig;
   private logFile?: WriteStream;
   private outputFile?: WriteStream;
+  private failureOutputFile?: WriteStream;
   private startedAt: number = 0;
   private currentIndex: number = 0;
   private dataEntries: string[] = [];
@@ -107,6 +118,7 @@ export class WorkerManager<CustomStatus extends Record<string, number>> {
     this.optionalConfig = {
       logFilePath: config.logFilePath,
       outputFilePath: config.outputFilePath,
+      failureOutputFilePath: config.failureOutputFilePath,
       overwriteOutputFile: config.overwriteOutputFile || false,
     };
   }
@@ -164,9 +176,10 @@ export class WorkerManager<CustomStatus extends Record<string, number>> {
           .catch(() => 0);
         if (outputFileSize > 0) {
           if (!this.optionalConfig.overwriteOutputFile) {
-            throw new Error(
+            console.error(
               `Output file ${this.optionalConfig.outputFilePath} already exists and overwriteOutputFile is false`
             );
+            process.exit(1);
           }
           await fs.truncate(this.optionalConfig.outputFilePath, 0);
         }
@@ -178,16 +191,39 @@ export class WorkerManager<CustomStatus extends Record<string, number>> {
           }
         );
       }
+      // Set up failure output file
+      if (this.optionalConfig.failureOutputFilePath) {
+        // Ensure file is empty before writing
+        const failureFileSize = await fs
+          .stat(this.optionalConfig.failureOutputFilePath)
+          .then((stats) => stats.size)
+          .catch(() => 0);
+        if (failureFileSize > 0) {
+          if (!this.optionalConfig.overwriteOutputFile) {
+            console.error(
+              `Failure output file ${this.optionalConfig.failureOutputFilePath} already exists and overwriteOutputFile is false`
+            );
+            process.exit(1);
+          }
+          await fs.truncate(this.optionalConfig.failureOutputFilePath, 0);
+        }
+        this.failureOutputFile = createWriteStream(
+          this.optionalConfig.failureOutputFilePath,
+          {
+            flags: "a",
+            encoding: "utf8",
+          }
+        );
+      }
 
       // Set up signal handlers
       process.on("SIGINT", this.handleShutdown.bind(this));
       process.on("SIGTERM", this.handleShutdown.bind(this));
     } catch (error) {
-      throw new Error(
-        `Failed to initialize: ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
+      const errorString =
+        error instanceof Error ? error.message : String(error);
+      console.error(`Error initializing worker manager: ${errorString}`);
+      process.exit(1);
     }
   }
 
@@ -236,9 +272,29 @@ export class WorkerManager<CustomStatus extends Record<string, number>> {
       workerInfo.status = message.status;
       const statuses = this.workers.map((w) => w.status);
       this.config.onStatusUpdate(statuses);
-    } else if (message.type === "completed") {
+    } else if (message.type === "completed-batch") {
       if (this.outputFile?.writable) {
-        this.outputFile.write(message.results.join("\n") + "\n");
+        const results = message.results.filter(Boolean);
+        if (results.length > 0) {
+          this.outputFile.write(results.join("\n") + "\n");
+        }
+      }
+      if (this.failureOutputFile?.writable) {
+        const failures = message.failures.filter(Boolean);
+        if (failures.length > 0) {
+          this.failureOutputFile.write(
+            failures.map((e) => `${e.name}: ${e.message}`).join("\n") + "\n"
+          );
+        }
+      }
+    } else if (message.type === "close-response") {
+      // Worker confirmed it's ready to close
+      workerInfo.isCompleted = true;
+
+      if (this.logFile?.writable) {
+        this.logFile.write(
+          `[${new Date().toISOString()}] Worker ${workerIndex} confirmed completion\n`
+        );
       }
     }
   }
@@ -267,7 +323,8 @@ export class WorkerManager<CustomStatus extends Record<string, number>> {
 
       this.cleanup();
 
-      this.config.onComplete();
+      const statuses = this.workers.map((w) => w.status);
+      this.config.onComplete(statuses);
     };
 
     for (let i = 0; i < this.config.processCount; i++) {
@@ -290,6 +347,7 @@ export class WorkerManager<CustomStatus extends Record<string, number>> {
           pending: 0,
         },
         isCompleted: false,
+        closeRequested: false,
       };
 
       child.on("error", (err) => {
@@ -394,15 +452,24 @@ export class WorkerManager<CustomStatus extends Record<string, number>> {
   }
 
   private checkForCompletion(): void {
-    // Close workers that have finished processing
+    // Send close requests to workers that appear to be idle
     this.workers.forEach((workerInfo, index) => {
-      if (workerInfo.status.pending <= 0 && !workerInfo.isCompleted) {
-        this.sendToWorker(workerInfo.process, { type: "close" });
-        workerInfo.isCompleted = true;
+      if (workerInfo.process.exitCode !== null) {
+        return; // Worker already exited
+      }
+
+      // Only send close request if we haven't already and worker appears idle
+      if (
+        !workerInfo.closeRequested &&
+        !workerInfo.isCompleted &&
+        workerInfo.status.pending <= 0
+      ) {
+        this.sendToWorker(workerInfo.process, { type: "close-request" });
+        workerInfo.closeRequested = true;
 
         if (this.logFile?.writable) {
           this.logFile.write(
-            `[${new Date().toISOString()}] Worker ${index} completed\n`
+            `[${new Date().toISOString()}] Sent close request to Worker ${index}\n`
           );
         }
       }
