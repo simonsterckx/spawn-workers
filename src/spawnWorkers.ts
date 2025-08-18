@@ -30,16 +30,25 @@ export interface SpawnWorkersConfig<
   /** Number of worker processes to spawn */
   processCount: number;
 
-  /** The amount of entries sent to each worker in one batch */
-  batchSize: number;
-
   /** Maximum number of concurrent entries per worker */
   maxConcurrency: number;
 
-  /** Maximum number of pending jobs per worker */
-  maxPendingJobs: number;
+  /**
+   * The amount of entries sent to each worker in one batch.
+   * @default data.length / processCount
+   */
+  batchSize?: number;
 
-  /** Duration of each tick in milliseconds */
+  /**
+   * Maximum number of pending jobs per worker
+   * @default batchSize * 2
+   */
+  maxPendingJobs?: number;
+
+  /**
+   * Duration of each tick in milliseconds
+   * @default 500
+   */
   tickDuration?: number;
 
   /** Initial index to start processing from */
@@ -109,6 +118,8 @@ export class WorkerManager<CustomStatus extends Record<string, number>> {
       tickDuration: 500,
       initialIndex: 0,
       totalEntries: 0,
+      batchSize: 0,
+      maxPendingJobs: 0,
       env: {},
       ...config,
       onComplete: config.onComplete ?? (() => {}),
@@ -127,14 +138,8 @@ export class WorkerManager<CustomStatus extends Record<string, number>> {
     if (config.processCount <= 0) {
       throw new Error("processCount must be greater than 0");
     }
-    if (config.batchSize <= 0) {
-      throw new Error("batchSize must be greater than 0");
-    }
     if (config.maxConcurrency <= 0) {
       throw new Error("maxConcurrency must be greater than 0");
-    }
-    if (config.maxPendingJobs <= 0) {
-      throw new Error("maxPendingJobs must be greater than 0");
     }
   }
 
@@ -144,11 +149,21 @@ export class WorkerManager<CustomStatus extends Record<string, number>> {
       this.dataEntries = dataContent.trim().split("\n");
 
       // Set up total entries if not specified
-      if (this.config.totalEntries === 0) {
+      if (!this.config.totalEntries) {
         this.config.totalEntries = Math.max(
           0,
           this.dataEntries.length - this.config.initialIndex
         );
+      }
+      // Set up batch size if not specified (defaults to data length / process count)
+      if (!this.config.batchSize) {
+        this.config.batchSize = Math.ceil(
+          this.dataEntries.length / this.config.processCount
+        );
+      }
+      // Set up max pending jobs if not specified
+      if (!this.config.maxPendingJobs) {
+        this.config.maxPendingJobs = this.config.batchSize * 2;
       }
 
       // Validate indices

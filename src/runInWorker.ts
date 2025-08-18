@@ -35,8 +35,8 @@ export function runInWorker<T extends Record<string, number>>({
   const queue: string[] = [];
   let isProcessing = false;
 
-  const batchSize = Number(process.env.MAX_CONCURRENCY);
-  if (!batchSize) {
+  const maxConcurrency = Number(process.env.MAX_CONCURRENCY);
+  if (!maxConcurrency) {
     throw new Error("MAX_CONCURRENCY environment variable is not set.");
   }
 
@@ -47,7 +47,7 @@ export function runInWorker<T extends Record<string, number>>({
     isProcessing = true;
 
     while (queue.length > 0) {
-      const batch = queue.splice(0, batchSize);
+      const batch = queue.splice(0, maxConcurrency);
       status.pending = queue.length;
 
       const promises = batch.map((jobEntry) => {
