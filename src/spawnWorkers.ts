@@ -343,17 +343,17 @@ export class WorkerManager<CustomStatus extends Record<string, number>> {
     };
 
     for (let i = 0; i < this.config.processCount; i++) {
-      const child = fork(this.config.workerFilePath, {
+      const childProcess = fork(this.config.workerFilePath, {
         env: {
           ...process.env,
           ...this.config.env,
           MAX_CONCURRENCY: String(this.config.maxConcurrency),
         },
-        silent: false,
+        stdio: ["inherit", "pipe", "pipe", "ipc"],
       });
 
       const workerInfo: WorkerInfo = {
-        process: child,
+        process: childProcess,
         status: {
           custom: {} as CustomStatus,
           started: 0,
@@ -365,7 +365,13 @@ export class WorkerManager<CustomStatus extends Record<string, number>> {
         closeRequested: false,
       };
 
-      child.on("error", (err) => {
+      childProcess.stdout!.on("data", (data) => {
+        if (this.logFile?.writable) {
+          this.logFile.write(`[Worker ${i}] ${data.toString()}`);
+        }
+      });
+
+      childProcess.on("error", (err) => {
         console.error(`Worker ${i} error:`, err.message);
         this.config.onError(
           {
@@ -373,11 +379,11 @@ export class WorkerManager<CustomStatus extends Record<string, number>> {
             message: err.message,
             stack: err.stack,
           },
-          { index: i, pid: child.pid }
+          { index: i, pid: childProcess.pid }
         );
       });
 
-      child.on("exit", (code, signal) => {
+      childProcess.on("exit", (code, signal) => {
         if (code !== 0 && signal !== "SIGTERM") {
           console.warn(
             `Worker ${i} exited with code ${code}, signal ${signal}`
@@ -390,7 +396,7 @@ export class WorkerManager<CustomStatus extends Record<string, number>> {
         }
       });
 
-      child.on("message", (message: IpcMessage<CustomStatus>) => {
+      childProcess.on("message", (message: IpcMessage<CustomStatus>) => {
         this.handleIpcMessage(message, i);
       });
 
@@ -408,27 +414,27 @@ export class WorkerManager<CustomStatus extends Record<string, number>> {
     this.startedAt = Date.now();
     this.startChildProcesses();
 
-    const stopIndex = this.config.initialIndex + this.config.totalEntries - 1;
+    const stopAtIndex = this.config.initialIndex + this.config.totalEntries - 1;
 
     if (this.logFile?.writable) {
       this.logFile.write(
         `[${new Date().toISOString()}] Processing entries ${
           this.config.initialIndex
-        } to ${stopIndex}. Total: ${this.config.totalEntries}\n`
+        } to ${stopAtIndex}. Total: ${this.config.totalEntries}\n`
       );
     }
 
     // Start the distribution loop
     this.workerIntervalId = setInterval(() => {
-      this.distributeWork(stopIndex);
+      this.distributeWork(stopAtIndex);
     }, this.config.tickDuration);
   }
 
-  private distributeWork(stopIndex: number): void {
+  private distributeWork(stopAtIndex: number): void {
     if (this.isShuttingDown) return;
 
     // Check if all work is distributed
-    if (this.currentIndex >= stopIndex) {
+    if (this.currentIndex >= stopAtIndex) {
       this.checkForCompletion();
       return;
     }
@@ -447,7 +453,7 @@ export class WorkerManager<CustomStatus extends Record<string, number>> {
       }
 
       // Calculate batch size for this worker
-      const remainingEntries = stopIndex + 1 - this.currentIndex;
+      const remainingEntries = stopAtIndex + 1 - this.currentIndex;
       const batchSize = Math.min(this.config.batchSize, remainingEntries);
 
       if (batchSize <= 0) return;
