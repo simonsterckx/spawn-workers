@@ -19,6 +19,7 @@ export function runInWorker<T extends Record<string, number>>({
 
   const status: WorkerStatus<T> = {
     custom: customStatus || ({} as T),
+    received: 0,
     started: 0,
     completed: 0,
     failed: 0,
@@ -107,6 +108,7 @@ export function runInWorker<T extends Record<string, number>>({
     if (message.type === "entries") {
       queue.push(...message.entries);
       status.pending = queue.length;
+      status.received += message.entries.length;
       processQueue();
       sendStatusUpdate();
     } else if (message.type === "close-request") {

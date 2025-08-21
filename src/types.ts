@@ -17,6 +17,7 @@ export type JobExecutionConfig<T extends Record<string, number>> = {
 export interface WorkerStatus<CustomStatus extends Record<string, number>> {
   custom: CustomStatus;
 
+  received: number;
   started: number;
   completed: number;
   failed: number;

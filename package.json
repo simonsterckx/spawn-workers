@@ -42,7 +42,7 @@
     "server": "tsx example/complex/server.ts",
     "spawn": "tsx example/complex/spawn.ts",
     "lint": "tsc --noEmit --strict",
-    "example": "npm run server & sleep 2 && npm run spawn",
+    "example": "tsx example/complex/test.ts",
     "build": "tsc -p tsconfig.build.json",
     "clean": "rm -rf lib",
     "prebuild": "npm run clean",

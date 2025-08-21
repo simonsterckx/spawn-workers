@@ -46,7 +46,7 @@ export interface SpawnWorkersConfig<
   maxPendingJobs?: number;
 
   /**
-   * Duration of each tick in milliseconds
+   * Each tick (duration in ms) will distribute work to workers
    * @default 500
    */
   tickDuration?: number;
@@ -360,6 +360,7 @@ export class WorkerManager<CustomStatus extends Record<string, number>> {
           completed: 0,
           failed: 0,
           pending: 0,
+          received: 0,
         },
         isCompleted: false,
         closeRequested: false,
@@ -414,13 +415,14 @@ export class WorkerManager<CustomStatus extends Record<string, number>> {
     this.startedAt = Date.now();
     this.startChildProcesses();
 
-    const stopAtIndex = this.config.initialIndex + this.config.totalEntries - 1;
+    const initialIndex = this.config.initialIndex;
+    const stopAtIndex = initialIndex + this.config.totalEntries - 1;
 
     if (this.logFile?.writable) {
       this.logFile.write(
-        `[${new Date().toISOString()}] Processing entries ${
-          this.config.initialIndex
-        } to ${stopAtIndex}. Total: ${this.config.totalEntries}\n`
+        `[${new Date().toISOString()}] Processing entries ${initialIndex} to ${
+          stopAtIndex + 1
+        }. Total: ${this.config.totalEntries}\n`
       );
     }
 
@@ -434,7 +436,7 @@ export class WorkerManager<CustomStatus extends Record<string, number>> {
     if (this.isShuttingDown) return;
 
     // Check if all work is distributed
-    if (this.currentIndex >= stopAtIndex) {
+    if (this.currentIndex > stopAtIndex) {
       this.checkForCompletion();
       return;
     }

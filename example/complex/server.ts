@@ -4,16 +4,21 @@ const port = 9090;
 
 const server = http.createServer((req, res) => {
   setTimeout(() => {
+    const randomNumber = Math.random();
     // random chance of failure
-    if (Math.random() < 0.1) {
+    if (randomNumber < 0.1) {
       res.statusCode = 500;
       res.setHeader("Content-Type", "text/plain");
       res.end("Internal Server Error\n");
       return;
     }
     res.statusCode = 200;
-    res.setHeader("Content-Type", "text/plain");
-    res.end("Hello, world!\n");
+    res.setHeader("Content-Type", "application/json");
+    res.end(
+      JSON.stringify({
+        result: randomNumber.toFixed(2),
+      })
+    );
   }, 500);
 });
 

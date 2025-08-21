@@ -4,37 +4,36 @@ import type { CustomStatus } from "./worker";
 
 const dirName = path.dirname(new URL(import.meta.url).pathname);
 
-const logStatus = throttle(
-  (statuses: readonly WorkerStatus<CustomStatus>[]) => {
-    console.clear();
-    console.log(`\n📊 Worker Status (${new Date().toLocaleTimeString()})`);
-    console.table(
-      statuses.map((status, index) => ({
-        started: status.started,
-        completed: status.completed,
-        failed: status.failed,
-
-        pending: status.pending,
-      }))
-    );
-  },
-  500
-);
+const logStatus = (statuses: readonly WorkerStatus<CustomStatus>[]) => {
+  console.clear();
+  console.log(`\n📊 Worker Status (${new Date().toLocaleTimeString()})`);
+  console.table(
+    statuses.map((status) => ({
+      total: status.received,
+      pending: status.pending,
+      started: status.started,
+      completed: status.completed,
+      failed: status.failed,
+    }))
+  );
+};
 
 spawnWorkers<CustomStatus>({
   workerFilePath: path.resolve(dirName, "./worker.ts"),
   dataFilePath: path.resolve(dirName, "./data/data.txt"),
+  outputFilePath: path.resolve(dirName, "./data/output.txt"),
+  overwriteOutputFile: true,
   processCount: 4,
-  batchSize: 50,
+  totalEntries: 1,
   maxConcurrency: 100,
-  maxPendingJobs: 200,
   tickDuration: 100,
-  logFilePath: "spawn-workers.log",
-  onComplete: () => {
+  logFilePath: path.resolve(dirName, "./spawn-workers.log"),
+  onComplete: (status) => {
+    logStatus(status);
     console.log("\n✅ All workers completed successfully!");
     process.exit(0);
   },
-  onStatusUpdate: logStatus,
+  onStatusUpdate: throttle(logStatus, 500),
 }).catch((error) => {
   console.error("Failed to start workers:", error);
   process.exit(1);

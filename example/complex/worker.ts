@@ -14,9 +14,8 @@ runInWorker({
         "Content-Type": "application/json",
       },
     });
-    if (response.status !== 200) {
-      throw new Error(`Api request failed: ${response.status}`);
-    }
+
+    return response.data.result;
   },
   customStatus: initialStatus,
 });
