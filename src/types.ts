@@ -19,9 +19,10 @@ export interface WorkerStatus<CustomStatus extends Record<string, number>> {
 
   received: number;
   started: number;
+  pending: number;
   completed: number;
   failed: number;
-  pending: number;
+  inProgress: number;
 }
 
 export type IpcMessageRequest =
@@ -45,9 +46,8 @@ export type IpcMessage<CustomStatus extends Record<string, number>> =
       status: WorkerStatus<CustomStatus>;
     }
   | {
-      type: "completed-batch";
-      results: string[];
-      failures: Error[];
+      type: "completed";
+      result: string;
     }
   | {
       type: "error";

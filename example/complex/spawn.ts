@@ -10,8 +10,7 @@ const logStatus = (statuses: readonly WorkerStatus<CustomStatus>[]) => {
   console.table(
     statuses.map((status) => ({
       total: status.received,
-      pending: status.pending,
-      started: status.started,
+      inProgress: status.inProgress,
       completed: status.completed,
       failed: status.failed,
     }))
@@ -24,7 +23,6 @@ spawnWorkers<CustomStatus>({
   outputFilePath: path.resolve(dirName, "./data/output.txt"),
   overwriteOutputFile: true,
   processCount: 4,
-  totalEntries: 1,
   maxConcurrency: 100,
   tickDuration: 100,
   logFilePath: path.resolve(dirName, "./spawn-workers.log"),

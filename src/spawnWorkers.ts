@@ -84,7 +84,6 @@ type OptionalConfig = Pick<
 type WorkerInfo = {
   process: ChildProcess;
   status: WorkerStatus<any>;
-  isCompleted: boolean;
   closeRequested: boolean;
 };
 
@@ -276,36 +275,24 @@ export class WorkerManager<CustomStatus extends Record<string, number>> {
 
     if (message.type === "error") {
       const error = message.error;
-      if (error && this.config.onError) {
-        this.config.onError(error, {
-          index: workerIndex,
-          pid: workerInfo.process.pid,
-        });
-        this.logError(workerIndex, error);
+      if (!error) return;
+      this.logError(workerIndex, error);
+      this.config.onError?.(error, {
+        index: workerIndex,
+        pid: workerInfo.process.pid,
+      });
+      if (this.failureOutputFile?.writable) {
+        this.failureOutputFile.write(`${error.name}: ${error.message}\n`);
       }
     } else if (message.type === "status") {
       workerInfo.status = message.status;
       const statuses = this.workers.map((w) => w.status);
       this.config.onStatusUpdate(statuses);
-    } else if (message.type === "completed-batch") {
+    } else if (message.type === "completed") {
       if (this.outputFile?.writable) {
-        const results = message.results.filter(Boolean);
-        if (results.length > 0) {
-          this.outputFile.write(results.join("\n") + "\n");
-        }
-      }
-      if (this.failureOutputFile?.writable) {
-        const failures = message.failures.filter(Boolean);
-        if (failures.length > 0) {
-          this.failureOutputFile.write(
-            failures.map((e) => `${e.name}: ${e.message}`).join("\n") + "\n"
-          );
-        }
+        this.outputFile.write(message.result + "\n");
       }
     } else if (message.type === "close-response") {
-      // Worker confirmed it's ready to close
-      workerInfo.isCompleted = true;
-
       if (this.logFile?.writable) {
         this.logFile.write(
           `[${new Date().toISOString()}] Worker ${workerIndex} confirmed completion\n`
@@ -361,8 +348,8 @@ export class WorkerManager<CustomStatus extends Record<string, number>> {
           failed: 0,
           pending: 0,
           received: 0,
+          inProgress: 0,
         },
-        isCompleted: false,
         closeRequested: false,
       };
 
@@ -482,11 +469,7 @@ export class WorkerManager<CustomStatus extends Record<string, number>> {
       }
 
       // Only send close request if we haven't already and worker appears idle
-      if (
-        !workerInfo.closeRequested &&
-        !workerInfo.isCompleted &&
-        workerInfo.status.pending <= 0
-      ) {
+      if (!workerInfo.closeRequested && workerInfo.status.pending <= 0) {
         this.sendToWorker(workerInfo.process, { type: "close-request" });
         workerInfo.closeRequested = true;
 

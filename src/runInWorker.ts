@@ -24,83 +24,71 @@ export function runInWorker<T extends Record<string, number>>({
     completed: 0,
     failed: 0,
     pending: 0,
+    inProgress: 0,
   };
 
   const sendStatusUpdate = () => {
     processSend({
       type: "status",
-      status: status,
+      status: {
+        ...status,
+        inProgress: runningPromises.size,
+      },
     });
   };
 
   const queue: string[] = [];
-  let isProcessing = false;
+  const runningPromises = new Set<Promise<void>>();
 
   const maxConcurrency = Number(process.env.MAX_CONCURRENCY);
   if (!maxConcurrency) {
     throw new Error("MAX_CONCURRENCY environment variable is not set.");
   }
 
-  async function processQueue() {
-    if (isProcessing) {
-      return;
-    }
-    isProcessing = true;
+  async function processJob(jobEntry: string): Promise<void> {
+    status.started++;
 
-    while (queue.length > 0) {
-      const batch = queue.splice(0, maxConcurrency);
+    try {
+      const result = await handler({
+        message: jobEntry,
+        status: status,
+      });
+
+      status.completed++;
+      if (result != null) {
+        processSend({
+          type: "completed",
+          result: result,
+        });
+      }
+    } catch (error: any) {
+      status.failed++;
+      const errorDetails = error || new Error("Unknown error");
+      if (error instanceof AggregateError) {
+        errorDetails.name += ".\n" + error.errors.map((e) => e.name).join(", ");
+        errorDetails.message +=
+          ".\n" + error.errors.map((e) => e.message).join(", ");
+      }
+
+      processSend({
+        type: "error",
+        error: errorDetails,
+      });
+    }
+  }
+
+  function startNewJobs() {
+    while (queue.length > 0 && runningPromises.size < maxConcurrency) {
+      const jobEntry = queue.shift()!;
       status.pending = queue.length;
 
-      const promises = batch.map((jobEntry) => {
-        status.started++;
-        return handler({
-          message: jobEntry,
-          status,
-        })
-          .then((result) => {
-            status.completed++;
-            return result;
-          })
-          .catch((error: Error | null) => {
-            status.failed++;
-            const errorDetails = error || new Error("Unknown error");
-            if (error instanceof AggregateError) {
-              errorDetails.name +=
-                ".\n" + error.errors.map((e) => e.name).join(", ");
-              errorDetails.message +=
-                ".\n" + error.errors.map((e) => e.message).join(", ");
-            }
-            processSend({
-              type: "error",
-              error: errorDetails,
-            });
-          });
+      const jobPromise = processJob(jobEntry).finally(() => {
+        runningPromises.delete(jobPromise);
+        // Try to start more jobs after this one completes
+        startNewJobs();
       });
 
-      const results = await Promise.allSettled(promises);
-      const fulfilledResults: string[] = [];
-      const rejectedResults: Error[] = [];
-      for (const res of results) {
-        if (res.status === "rejected") {
-          rejectedResults.push(res.reason as Error);
-        } else if (res.status === "fulfilled" && res.value != undefined) {
-          fulfilledResults.push(res.value);
-        }
-      }
-      processSend({
-        type: "completed-batch",
-        results: fulfilledResults,
-        failures: rejectedResults,
-      });
-    }
-
-    isProcessing = false;
-
-    // Check if new entries were added while processing
-    if (queue.length > 0) {
-      processQueue();
-    } else {
-      sendStatusUpdate();
+      runningPromises.add(jobPromise);
     }
   }
 
@@ -109,11 +97,11 @@ export function runInWorker<T extends Record<string, number>>({
       queue.push(...message.entries);
       status.pending = queue.length;
       status.received += message.entries.length;
-      processQueue();
+      startNewJobs();
       sendStatusUpdate();
     } else if (message.type === "close-request") {
       // Only respond with close-response if we truly have no pending work
-      if (queue.length === 0 && !isProcessing) {
+      if (queue.length === 0 && runningPromises.size === 0) {
         processSend({
           type: "close-response",
         });
@@ -131,7 +119,7 @@ export function runInWorker<T extends Record<string, number>>({
         // If we still have work, we'll respond later when we're truly done
         // Check again after current processing completes
         const checkForClose = () => {
-          if (queue.length === 0 && !isProcessing) {
+          if (queue.length === 0 && runningPromises.size === 0) {
             processSend({
               type: "close-response",
             });
